@@ -73,13 +73,33 @@ function show(kind, icon, title, body, extra) {
     '<div class="icon ' + kind + '">' + ICONS[icon] + '</div>' +
     '<h1>' + esc(title) + '</h1>' + body + (extra || "");
 }
+function pwMissing(e) {
+  const m = (e && e.message) || "", out = [];
+  if (/upper case/i.test(m)) out.push("bir büyük harf");
+  if (/lower case/i.test(m)) out.push("bir küçük harf");
+  if (/numeric/i.test(m)) out.push("bir rakam");
+  if (/non-alphanumeric/i.test(m)) out.push("bir özel karakter (! ? . , _ - * gibi)");
+  if (/at least/i.test(m)) out.push("en az 6 karakter");
+  if (/at most/i.test(m)) out.push("en fazla 50 karakter");
+  return out.length ? "Şifren şunları içermeli: " + out.join(", ") + "." : "Şifren güvenlik kurallarına uymuyor. Büyük harf, küçük harf, rakam ve özel karakter kullan.";
+}
+function pwLocal(p) {
+  const miss = [];
+  if (p.length < 6) miss.push("en az 6 karakter");
+  if (!/[A-Z]/.test(p)) miss.push("bir büyük harf");
+  if (!/[a-z]/.test(p)) miss.push("bir küçük harf");
+  if (!/[0-9]/.test(p)) miss.push("bir rakam");
+  if (!/[^A-Za-z0-9\s]/.test(p)) miss.push("bir özel karakter (! ? . , _ - * gibi)");
+  return miss.length ? "Şifren şunları içermeli: " + miss.join(", ") + "." : "";
+}
 function msgFor(e) {
+  if (e && e.code === "auth/password-does-not-meet-requirements") return pwMissing(e);
   const m = {
     "auth/expired-action-code": "Bu bağlantının süresi dolmuş.",
     "auth/invalid-action-code": "Bu bağlantı geçersiz ya da daha önce kullanılmış.",
     "auth/user-disabled": "Bu hesap devre dışı bırakılmış.",
     "auth/user-not-found": "Bu bağlantıya ait hesap bulunamadı.",
-    "auth/weak-password": "Şifre çok zayıf. En az 6 karakter kullan.",
+    "auth/weak-password": "Şifre çok zayıf. Büyük harf, küçük harf, rakam ve özel karakter kullan.",
     "auth/network-request-failed": "İnternet bağlantını kontrol edip tekrar dene."
   };
   return m[e && e.code] || "Bir sorun oluştu. Lütfen uygulamadan yeni bir bağlantı iste.";
@@ -106,15 +126,17 @@ async function run() {
     try { email = await auth.verifyPasswordResetCode(code); }
     catch (e) { return show("bad", "bad", "Bağlantı geçersiz", '<p>' + esc(msgFor(e)) + '</p>', RETRY); }
     show("", "key", "Yeni şifre belirle", '<p>Şu hesap için yeni şifre seç:</p><p class="em">' + esc(email) + '</p>',
-      '<form id="f"><label for="p1">Yeni şifre</label><input id="p1" type="password" minlength="6" autocomplete="new-password" required>' +
-      '<label for="p2">Yeni şifre (tekrar)</label><input id="p2" type="password" minlength="6" autocomplete="new-password" required>' +
+      '<form id="f"><label for="p1">Yeni şifre</label><input id="p1" type="password" maxlength="50" autocomplete="new-password" required>' +
+      '<p style="font-size:13px;margin:-4px 2px 12px">En az 6 karakter; bir büyük harf, bir küçük harf, bir rakam ve bir özel karakter (! ? . , _ - * gibi) içermeli.</p>' +
+      '<label for="p2">Yeni şifre (tekrar)</label><input id="p2" type="password" maxlength="50" autocomplete="new-password" required>' +
       '<div class="err" id="err"></div><button id="b" type="submit">Şifreyi kaydet</button></form>');
     document.getElementById("f").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const p1 = document.getElementById("p1").value, p2 = document.getElementById("p2").value;
       const err = document.getElementById("err"), b = document.getElementById("b");
       err.textContent = "";
-      if (p1.length < 6) { err.textContent = "Şifre en az 6 karakter olmalı."; return; }
+      const local = pwLocal(p1);
+      if (local) { err.textContent = local; return; }
       if (p1 !== p2) { err.textContent = "Şifreler aynı değil."; return; }
       b.disabled = true; b.textContent = "Kaydediliyor";
       try {
